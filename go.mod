@@ -1,4 +1,4 @@
-module simple_mongo
+module github.com/sis6789/simple_mongo
 
 go 1.17
 
