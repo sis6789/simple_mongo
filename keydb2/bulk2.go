@@ -19,6 +19,7 @@ type BulkBlock struct {
 	goRoutineRequestWG sync.WaitGroup
 	isClosed           bool
 	client             *KeyDB
+	lockClose          sync.Mutex
 }
 
 // merger - 야러 고루틴에서 보내지는 요구를 모아서 DB에 적용한다.
@@ -57,14 +58,28 @@ func goRoutineMerger(b *BulkBlock) {
 
 // NewBulk - prepare bulk operation
 func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
-	var pB *BulkBlock
-	var exist bool
 	dbCol := dbName + "::" + collectionName
-
-	x.mapBulkMutex.Lock()
-	if pB, exist = x.mapBulk[dbCol]; !exist {
+	iVal, exist := x.mapBulk.Load(dbCol)
+	if exist {
+		if iVal.(*BulkBlock).isClosed {
+			pB := iVal.(*BulkBlock)
+			// restart channel
+			pB.isClosed = false
+			pB.dbName = dbName
+			pB.collectionName = collectionName
+			pB.collection = x.Col(dbName, collectionName)
+			pB.limit = interval
+			pB.goRoutineRequest = make(chan mongo.WriteModel)
+			pB.goRoutineRequestWG.Add(1)
+			go goRoutineMerger(pB)
+			return pB
+		} else {
+			return iVal.(*BulkBlock)
+		}
+	} else {
+		// create new chaneel
 		var b BulkBlock
-		pB = &b
+		pB := &b
 		b.client = x
 		b.isClosed = false
 		b.dbName = dbName
@@ -73,24 +88,11 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		b.limit = interval
 		b.goRoutineRequest = make(chan mongo.WriteModel)
 		b.goRoutineRequestWG.Add(1)
-		x.mapBulk[dbCol] = &b
+		x.mapBulk.Store(dbCol, &b)
 		go goRoutineMerger(pB)
 		log.Printf("newBulk start: mongo:%v db:%v col:%v", x.mongodbAccess, dbName, collectionName)
-	} else if pB.isClosed {
-		pB.isClosed = false
-		pB.dbName = dbName
-		pB.collectionName = collectionName
-		pB.collection = x.Col(dbName, collectionName)
-		pB.limit = interval
-		pB.goRoutineRequest = make(chan mongo.WriteModel)
-		pB.goRoutineRequestWG.Add(1)
-		go goRoutineMerger(pB)
-	} else {
-		log.Printf("newBulk while active: mongo:%v db:%v col:%v", x.mongodbAccess, dbName, collectionName)
+		return pB
 	}
-	x.mapBulkMutex.Unlock()
-
-	return pB
 }
 
 // InsertOne - append action InsertOne.
@@ -113,13 +115,16 @@ func (bb *BulkBlock) UpdateOne(model *mongo.UpdateOneModel) {
 
 // Close - send remain accumulated request.
 func (bb *BulkBlock) Close() {
-	bb.client.mapBulkMutex.Lock()
+	if bb.isClosed {
+		return
+	}
+	bb.lockClose.Lock()
 	bb.isClosed = true
 	close(bb.goRoutineRequest)
 	bb.goRoutineRequestWG.Wait()
 	bb.isClosed = true
 	bb.goRoutineRequest = nil
-	bb.client.mapBulkMutex.Unlock()
+	bb.lockClose.Unlock()
 }
 
 // String - status message
