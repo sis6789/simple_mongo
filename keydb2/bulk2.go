@@ -34,14 +34,16 @@ func goRoutineMerger(b *BulkBlock) {
 		// check flush request
 		select {
 		case <-b.goRoutineFlush:
-			wgAsync.Add(1)
-			go func(models []mongo.WriteModel) {
-				defer wgAsync.Done()
-				if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
-					log.Fatalln(b, err)
-				}
-			}(tempHolder) // call by value로
-			tempHolder = []mongo.WriteModel{}
+			if len(tempHolder) > 0 {
+				wgAsync.Add(1)
+				go func(models []mongo.WriteModel) {
+					defer wgAsync.Done()
+					if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
+						log.Fatalln(b, err)
+					}
+				}(tempHolder) // send address pf tempHolder
+				tempHolder = []mongo.WriteModel{} // assign new tempHolder address
+			}
 		default:
 		}
 		if len(tempHolder) >= b.limit {
