@@ -10,139 +10,135 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type BulkBlock struct {
+type bulkBlock struct {
 	limit              int
 	dbName             string
 	collectionName     string
 	collection         *mongo.Collection
-	goRoutineRequest   chan mongo.WriteModel
-	goRoutineFlush     chan bool
+	chanRequest        chan mongoRequest
 	goRoutineRequestWG sync.WaitGroup
 	isClosed           bool
-	client             *KeyDB
+	client             *keyDB
 	onceClose          sync.Once
 }
 
+type mongoRequest struct {
+	isFlush bool
+	data    mongo.WriteModel
+}
+
 // merger - 야러 고루틴에서 보내지는 요구를 모아서 DB에 적용한다.
-func goRoutineMerger(b *BulkBlock) {
+func goRoutineMerger(b *bulkBlock) {
 	defer b.goRoutineRequestWG.Done()
 	var tempHolder []mongo.WriteModel
-	var nonOrderedOpt = options.BulkWrite().SetOrdered(false)
 	var wgAsync sync.WaitGroup
-	xxx := 0
-loopFor:
-	for {
-		select {
-		case doAgain := <-b.goRoutineFlush:
-			// check flush request
-			fmt.Println("flush", doAgain)
+	var nonOrderedOpt = options.BulkWrite().SetOrdered(false)
+	// define mongo db request
+	callMongo := func(models []mongo.WriteModel) {
+		defer wgAsync.Done()
+		if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
+			log.Fatalln(b, err)
+		}
+	}
+	// loop for request
+	for request := range b.chanRequest {
+		if request.isFlush {
 			if len(tempHolder) > 0 {
 				wgAsync.Add(1)
-				go func(models []mongo.WriteModel) {
-					defer wgAsync.Done()
-					if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
-						log.Fatalln(b, err)
-					}
-				}(tempHolder) // send address pf tempHolder
-				tempHolder = []mongo.WriteModel{} // assign new tempHolder address
+				go callMongo(tempHolder)
+				tempHolder = []mongo.WriteModel{}
 			}
-			if !doAgain {
-				// end of bulk operation, close is issued
-				b.onceClose.Do(func() {
-					b.isClosed = true
-					close(b.goRoutineFlush)
-					close(b.goRoutineRequest)
-					b.goRoutineRequestWG.Wait()
-					b.isClosed = true
-					b.goRoutineRequest = nil
-				})
-				break loopFor
-			}
-		case request := <-b.goRoutineRequest:
-			xxx++
-			fmt.Println(xxx, request)
-			tempHolder = append(tempHolder, request)
+		} else {
+			tempHolder = append(tempHolder, request.data)
 			if len(tempHolder) >= b.limit {
-				vv := true
-				b.goRoutineFlush <- vv
-				fmt.Println("flush req done")
+				wgAsync.Add(1)
+				go callMongo(tempHolder)
+				tempHolder = []mongo.WriteModel{}
 			}
 		}
 	}
+	// process remain request
+	if len(tempHolder) > 0 {
+		wgAsync.Add(1)
+		go callMongo(tempHolder)
+		tempHolder = []mongo.WriteModel{}
+	}
 	wgAsync.Wait()
-	log.Printf("close bulk: mongo:%v db:%v col:%v", b.client.mongodbAccess, b.dbName, b.collectionName)
+	b.isClosed = true
 }
 
 // NewBulk - prepare bulk operation
-func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
+func (x *keyDB) NewBulk(dbName, collectionName string, interval int) *bulkBlock {
 	dbCol := dbName + "::" + collectionName
+	initializeBlock := func(pB *bulkBlock) {
+		pB.client = x
+		pB.isClosed = false
+		pB.dbName = dbName
+		pB.collectionName = collectionName
+		pB.collection = x.Col(dbName, collectionName)
+		pB.limit = interval
+		pB.chanRequest = make(chan mongoRequest)
+		pB.onceClose = sync.Once{}
+		pB.goRoutineRequestWG.Add(1)
+		go goRoutineMerger(pB)
+	}
 	iVal, exist := x.mapBulk.Load(dbCol)
 	if exist {
-		if iVal.(*BulkBlock).isClosed {
-			pB := iVal.(*BulkBlock)
+		if iVal.(*bulkBlock).isClosed {
+			pB := iVal.(*bulkBlock)
 			// restart channel
-			pB.isClosed = false
-			pB.dbName = dbName
-			pB.collectionName = collectionName
-			pB.collection = x.Col(dbName, collectionName)
-			pB.limit = interval
-			pB.goRoutineRequest = make(chan mongo.WriteModel)
-			pB.goRoutineFlush = make(chan bool)
-			pB.onceClose = sync.Once{}
-			pB.goRoutineRequestWG.Add(1)
-			go goRoutineMerger(pB)
+			initializeBlock(pB)
 			return pB
 		} else {
-			return iVal.(*BulkBlock)
+			return iVal.(*bulkBlock)
 		}
 	} else {
 		// create new chaneel
-		var b BulkBlock
+		var b bulkBlock
 		pB := &b
-		b.client = x
-		b.isClosed = false
-		b.dbName = dbName
-		b.collectionName = collectionName
-		b.collection = x.Col(dbName, collectionName)
-		b.limit = interval
-		b.goRoutineRequest = make(chan mongo.WriteModel)
-		pB.goRoutineFlush = make(chan bool)
-		b.goRoutineRequestWG.Add(1)
-		x.mapBulk.Store(dbCol, &b)
-		go goRoutineMerger(pB)
+		initializeBlock(pB)
 		log.Printf("newBulk start: mongo:%v db:%v col:%v", x.mongodbAccess, dbName, collectionName)
 		return pB
 	}
 }
 
 // InsertOne - append action InsertOne.
-func (bb *BulkBlock) InsertOne(model *mongo.InsertOneModel) {
+func (bb *bulkBlock) InsertOne(model *mongo.InsertOneModel) {
 	if bb.isClosed {
 		log.Fatalf("put after close: mongo:%v db:%v col:%v", bb.client.mongodbAccess, bb.dbName, bb.collectionName)
 	} else {
-		bb.goRoutineRequest <- model
+		bb.chanRequest <- mongoRequest{
+			isFlush: false,
+			data:    model,
+		}
 	}
 }
 
 // UpdateOne - append action UpdateOne.
-func (bb *BulkBlock) UpdateOne(model *mongo.UpdateOneModel) {
+func (bb *bulkBlock) UpdateOne(model *mongo.UpdateOneModel) {
 	if bb.isClosed {
 		log.Fatalf("put after close: mongo:%v db:%v col:%v", bb.client.mongodbAccess, bb.dbName, bb.collectionName)
 	} else {
-		bb.goRoutineRequest <- model
+		bb.chanRequest <- mongoRequest{
+			isFlush: false,
+			data:    model,
+		}
 	}
 }
 
-func (bb *BulkBlock) Flush() {
-	bb.goRoutineFlush <- true
+func (bb *bulkBlock) Flush() {
+	bb.chanRequest <- mongoRequest{
+		isFlush: true,
+		data:    nil,
+	}
 }
 
 // Close - send remain accumulated request.
-func (bb *BulkBlock) Close() {
-	bb.goRoutineFlush <- false
+func (bb *bulkBlock) Close() {
+	close(bb.chanRequest)
 }
 
 // String - status message
-func (bb *BulkBlock) String() string {
+func (bb *bulkBlock) String() string {
 	return fmt.Sprintf("mongo:%v db:%v col:%v", bb.client.mongodbAccess, bb.dbName, bb.collectionName)
 }
