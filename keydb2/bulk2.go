@@ -97,7 +97,7 @@ func (x *keyDB) NewBulk(dbName, collectionName string, interval int) *bulkBlock 
 		var b bulkBlock
 		pB := &b
 		initializeBlock(pB)
-		log.Printf("newBulk start: mongo:%v db:%v col:%v", x.mongodbAccess, dbName, collectionName)
+		log.Printf("bulk start: %v", pB)
 		return pB
 	}
 }
@@ -136,6 +136,7 @@ func (bb *bulkBlock) Flush() {
 // Close - send remain accumulated request.
 func (bb *bulkBlock) Close() {
 	close(bb.chanRequest)
+	log.Printf("bulk close: %v", bb)
 }
 
 // String - status message
