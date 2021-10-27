@@ -36,8 +36,10 @@ func goRoutineMerger(b *bulkBlock) {
 	// define mongo db request
 	callMongo := func(models []mongo.WriteModel) {
 		defer wgAsync.Done()
-		if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
+		if r, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
 			log.Fatalln(b, err)
+		} else {
+			log.Println(b, r)
 		}
 	}
 	// loop for request
@@ -127,14 +129,19 @@ func (bb *bulkBlock) UpdateOne(model *mongo.UpdateOneModel) {
 }
 
 func (bb *bulkBlock) Flush() {
-	bb.chanRequest <- mongoRequest{
-		isFlush: true,
-		data:    nil,
+	if bb.isClosed {
+
+	} else {
+		bb.chanRequest <- mongoRequest{
+			isFlush: true,
+			data:    nil,
+		}
 	}
 }
 
 // Close - send remain accumulated request.
 func (bb *bulkBlock) Close() {
+	bb.Flush()
 	close(bb.chanRequest)
 	log.Printf("bulk close: %v", bb)
 }
