@@ -18,7 +18,7 @@ type keyDB struct {
 	mongodbAccess string
 	mongoClient   *mongo.Client //= nil
 	mapCollection sync.Map      // map[string]*mongo.Collection
-	mapBulk       sync.Map      // map[string]*bulkBlock
+	mapBulk       sync.Map      // map[string]*BulkBlock
 }
 
 // New - prepare mongodb access
