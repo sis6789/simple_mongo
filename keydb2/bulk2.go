@@ -11,15 +11,15 @@ import (
 )
 
 type BulkBlock struct {
-	limit              int
-	dbName             string
-	collectionName     string
-	collection         *mongo.Collection
-	chanRequest        chan mongoRequest
-	goRoutineRequestWG sync.WaitGroup
-	isClosed           bool
-	client             *keyDB
-	onceClose          sync.Once
+	limit               int
+	dbName              string
+	collectionName      string
+	collection          *mongo.Collection
+	chanRequest         chan mongoRequest
+	requestReceiverSync sync.WaitGroup
+	isClosed            bool
+	client              *keyDB
+	onceClose           sync.Once
 }
 
 type mongoRequest struct {
@@ -29,49 +29,47 @@ type mongoRequest struct {
 }
 
 // merger - 야러 고루틴에서 보내지는 요구를 모아서 DB에 적용한다.
-func goRoutineMerger(b *BulkBlock) {
-	defer b.goRoutineRequestWG.Done()
-	var tempHolder []mongo.WriteModel
-	var isDoneAllBulkWrite sync.WaitGroup
+func requestReceiver(bb *BulkBlock) {
+	defer bb.requestReceiverSync.Done()
+	var requestStorage []mongo.WriteModel
+	var mongoCallSync sync.WaitGroup
 	var nonOrderedOpt = options.BulkWrite().SetOrdered(false)
 	// define mongo db request
-	callMongo := func(models []mongo.WriteModel) {
-		defer isDoneAllBulkWrite.Done()
-		if _, err := b.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
-			log.Println(b, err)
-		} else {
-			log.Printf("done %v %v", b, len(models))
+	issueMongoCommand := func(models []mongo.WriteModel) {
+		defer mongoCallSync.Done()
+		if _, err := bb.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
+			log.Println(bb, err)
 		}
 	}
 	// loop for request
-	for request := range b.chanRequest {
+	for request := range bb.chanRequest {
 		if request.isFlush {
-			if len(tempHolder) > 0 {
-				isDoneAllBulkWrite.Add(1)
-				go callMongo(tempHolder)
-				tempHolder = []mongo.WriteModel{}
+			if len(requestStorage) > 0 {
+				mongoCallSync.Add(1)
+				go issueMongoCommand(requestStorage)
+				requestStorage = []mongo.WriteModel{}
 			}
 		} else if request.isClose {
 			break
 		} else {
-			tempHolder = append(tempHolder, request.data)
-			if len(tempHolder) >= b.limit {
-				isDoneAllBulkWrite.Add(1)
-				go callMongo(tempHolder)
-				tempHolder = []mongo.WriteModel{}
+			requestStorage = append(requestStorage, request.data)
+			if len(requestStorage) >= bb.limit {
+				mongoCallSync.Add(1)
+				go issueMongoCommand(requestStorage)
+				requestStorage = []mongo.WriteModel{}
 			}
 		}
 	}
 	// process remain request
-	if len(tempHolder) > 0 {
-		isDoneAllBulkWrite.Add(1)
-		go callMongo(tempHolder)
-		tempHolder = []mongo.WriteModel{}
+	if len(requestStorage) > 0 {
+		mongoCallSync.Add(1)
+		go issueMongoCommand(requestStorage)
+		requestStorage = []mongo.WriteModel{}
 	}
-	close(b.chanRequest)
-	isDoneAllBulkWrite.Wait()
-	b.isClosed = true
-	log.Printf("bulk close: %v", b)
+	// 요구한 몽고 DB 처리 완료를 기다린다.
+	mongoCallSync.Wait()
+	bb.isClosed = true
+	log.Printf("bulk close: %v", bb)
 }
 
 // NewBulk - prepare bulk operation
@@ -86,8 +84,8 @@ func (x *keyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		pB.limit = interval
 		pB.chanRequest = make(chan mongoRequest)
 		pB.onceClose = sync.Once{}
-		pB.goRoutineRequestWG.Add(1)
-		go goRoutineMerger(pB)
+		pB.requestReceiverSync.Add(1)
+		go requestReceiver(pB)
 	}
 	iVal, exist := x.mapBulk.Load(dbCol)
 	if exist {
@@ -153,6 +151,7 @@ func (bb *BulkBlock) Close() {
 		isClose: true,
 		data:    nil,
 	}
+	bb.requestReceiverSync.Wait()
 }
 
 // String - status message
