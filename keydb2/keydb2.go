@@ -111,6 +111,7 @@ func (x *keyDB) DropDb(dbName string) {
 func (x *keyDB) Index(dbName, collectionName string, fieldName ...string) {
 	collection := x.Col(dbName, collectionName)
 	var vFalse = false
+	var vTrue = true
 	var keyDef bson.D
 	for _, kf := range fieldName {
 		keyDef = append(keyDef, bson.E{Key: kf, Value: 1})
@@ -119,9 +120,10 @@ func (x *keyDB) Index(dbName, collectionName string, fieldName ...string) {
 		Keys: keyDef,
 		Options: &options.IndexOptions{
 			Unique: &vFalse,
+			Sparse: &vTrue,
 		},
 	}
 	if _, err := collection.Indexes().CreateOne(x.myContext, model); err != nil {
-		log.Fatalln(err)
+		log.Printf("%v", err)
 	}
 }
