@@ -113,12 +113,15 @@ func (x *keyDB) Index(dbName, collectionName string, fieldName ...string) {
 	var vFalse = false
 	var vTrue = true
 	var keyDef bson.D
+	indexName := dbName + "_" + collectionName
 	for _, kf := range fieldName {
+		indexName += "_" + kf
 		keyDef = append(keyDef, bson.E{Key: kf, Value: 1})
 	}
 	model := mongo.IndexModel{
 		Keys: keyDef,
 		Options: &options.IndexOptions{
+			Name:   &indexName,
 			Unique: &vFalse,
 			Sparse: &vTrue,
 		},
