@@ -18,7 +18,7 @@ type BulkBlock struct {
 	chanRequest         chan mongoRequest
 	requestReceiverSync sync.WaitGroup
 	isClosed            bool
-	client              *keyDB
+	client              *KeyDB
 	onceClose           sync.Once
 }
 
@@ -73,7 +73,7 @@ func requestReceiver(bb *BulkBlock) {
 }
 
 // NewBulk - prepare bulk operation
-func (x *keyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
+func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
 	dbCol := dbName + "::" + collectionName
 	initializeBlock := func(pB *BulkBlock) {
 		pB.client = x
