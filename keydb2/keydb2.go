@@ -130,3 +130,26 @@ func (x *KeyDB) Index(dbName, collectionName string, fieldName ...string) {
 		log.Printf("%v", err)
 	}
 }
+
+// IndexUnique - add index definition. Specify key elements as repeated string.
+func (x *KeyDB) IndexUnique(dbName, collectionName string, fieldName ...string) {
+	collection := x.Col(dbName, collectionName)
+	var vTrue = true
+	var keyDef bson.D
+	indexName := dbName + "_" + collectionName
+	for _, kf := range fieldName {
+		indexName += "_" + kf
+		keyDef = append(keyDef, bson.E{Key: kf, Value: 1})
+	}
+	model := mongo.IndexModel{
+		Keys: keyDef,
+		Options: &options.IndexOptions{
+			Name:   &indexName,
+			Unique: &vTrue,
+			Sparse: &vTrue,
+		},
+	}
+	if _, err := collection.Indexes().CreateOne(x.myContext, model); err != nil {
+		log.Printf("%v", err)
+	}
+}
