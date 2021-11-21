@@ -38,7 +38,7 @@ func requestReceiver(bb *BulkBlock) {
 	issueMongoCommand := func(models []mongo.WriteModel) {
 		defer mongoCallSync.Done()
 		if _, err := bb.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
-			log.Println(bb, err)
+			log.Printf("%v", err)
 		}
 	}
 	// loop for request
