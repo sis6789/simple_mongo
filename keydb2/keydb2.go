@@ -153,3 +153,36 @@ func (x *KeyDB) IndexUnique(dbName, collectionName string, fieldName ...string) 
 		log.Printf("%v", err)
 	}
 }
+
+func (x *KeyDB) DbNames(requiredCollectionName ...string) []string {
+	dbs, err := x.mongoClient.ListDatabases(x.myContext, bson.M{})
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	var result []string
+	for _, db := range dbs.Databases {
+		switch db.Name {
+		case "admin", "config", "local", "human":
+			continue
+		default:
+			wDB := x.mongoClient.Database("bowtie2_20211226")
+			cols, err := wDB.ListCollectionNames(x.myContext, bson.M{})
+			if err != nil {
+				log.Fatalf("%v", err)
+			}
+			matchCount := 0
+			for _, cn := range cols {
+				for _, rn := range requiredCollectionName {
+					if cn == rn {
+						matchCount++
+						break
+					}
+				}
+			}
+			if matchCount == len(requiredCollectionName) {
+				result = append(result, db.Name)
+			}
+		}
+	}
+	return result
+}
