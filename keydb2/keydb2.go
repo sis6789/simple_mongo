@@ -165,7 +165,7 @@ func (x *KeyDB) DbNames(requiredCollectionName ...string) []string {
 		case "admin", "config", "local", "human":
 			continue
 		default:
-			wDB := x.mongoClient.Database("bowtie2_20211226")
+			wDB := x.mongoClient.Database(db.Name)
 			cols, err := wDB.ListCollectionNames(x.myContext, bson.M{})
 			if err != nil {
 				log.Fatalf("%v", err)
