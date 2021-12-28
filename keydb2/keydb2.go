@@ -170,6 +170,9 @@ func (x *KeyDB) DbNames(requiredCollectionName ...string) []string {
 			if err != nil {
 				log.Fatalf("%v", err)
 			}
+			if len(cols) < len(requiredCollectionName) {
+				continue
+			}
 			matchCount := 0
 			for _, cn := range cols {
 				for _, rn := range requiredCollectionName {
