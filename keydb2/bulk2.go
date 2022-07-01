@@ -8,6 +8,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/sis6789/nucs/limitGoSub"
 )
 
 type BulkBlock struct {
@@ -20,6 +22,7 @@ type BulkBlock struct {
 	isClosed            bool
 	client              *KeyDB
 	onceClose           sync.Once
+	limitMaxIssue       *limitGoSub.LimitGoSub
 }
 
 type mongoRequest struct {
@@ -36,7 +39,11 @@ func requestReceiver(bb *BulkBlock) {
 	var nonOrderedOpt = options.BulkWrite().SetOrdered(false)
 	// define mongo db request
 	issueMongoCommand := func(models []mongo.WriteModel) {
-		defer mongoCallSync.Done()
+		defer func() {
+			bb.limitMaxIssue.Done()
+			mongoCallSync.Done()
+		}()
+		bb.limitMaxIssue.Wait()
 		if _, err := bb.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
 			log.Printf("%v", err)
 		}
@@ -85,6 +92,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		pB.chanRequest = make(chan mongoRequest)
 		pB.onceClose = sync.Once{}
 		pB.requestReceiverSync.Add(1)
+		pB.limitMaxIssue = limitGoSub.New(3)
 		go requestReceiver(pB)
 	}
 	iVal, exist := x.mapBulk.Load(dbCol)
