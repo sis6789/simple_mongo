@@ -56,6 +56,11 @@ func GoodBye() {
 	})
 }
 
+// Database - return database with parameter, no admin for this DB
+func (x *KeyDB) Database(dbName string) *mongo.Database {
+	return x.mongoClient.Database(dbName)
+}
+
 // Col - return collection, if not exist make collection and return it.
 func (x *KeyDB) Col(dbName, collectionName string) *mongo.Collection {
 	dbCol := dbName + "::" + collectionName
