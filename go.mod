@@ -1,6 +1,6 @@
 module github.com/sis6789/simple_mongo
 
-go 1.17
+go 1.19
 
 require (
 	github.com/sis6789/nucs v0.0.0-20220413065202-07b4c7c717a5
