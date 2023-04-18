@@ -6,10 +6,9 @@ import (
 	"log"
 	"sync"
 
+	"github.com/sis6789/nucs/limitGoSub"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"github.com/sis6789/nucs/limitGoSub"
 )
 
 type BulkBlock struct {
@@ -23,6 +22,7 @@ type BulkBlock struct {
 	client              *KeyDB
 	onceClose           sync.Once
 	limitMaxIssue       *limitGoSub.LimitGoSub
+	bulkWriteOption     *options.BulkWriteOptions
 }
 
 type mongoRequest struct {
@@ -80,10 +80,6 @@ func requestReceiver(bb *BulkBlock) {
 	log.Printf("bulk close: %v", bb)
 }
 
-func SetOrderedWrite(order bool) {
-	bulkWriteOption = options.BulkWrite().SetOrdered(order)
-}
-
 // NewBulk - prepare bulk operation
 func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
 	dbCol := dbName + "::" + collectionName
@@ -98,7 +94,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		pB.onceClose = sync.Once{}
 		pB.requestReceiverSync.Add(1)
 		pB.limitMaxIssue = limitGoSub.New(3)
-		SetOrderedWrite(false)
+		pB.bulkWriteOption = options.BulkWrite().SetOrdered(false)
 		go requestReceiver(pB)
 	}
 	iVal, exist := x.mapBulk.Load(dbCol)
@@ -119,6 +115,10 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		log.Printf("bulk start: %v", pB)
 		return pB
 	}
+}
+
+func (bb *BulkBlock) SetOrderedWrite(order bool) {
+	bb.bulkWriteOption = options.BulkWrite().SetOrdered(order)
 }
 
 // InsertOne - append action InsertOne.
