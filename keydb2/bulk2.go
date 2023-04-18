@@ -111,6 +111,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		pB := &b
 		initializeBlock(pB)
 		log.Printf("bulk start: %v", pB)
+		x.mapBulk.Swap(dbCol, pB)
 		return pB
 	}
 }
