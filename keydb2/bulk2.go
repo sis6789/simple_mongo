@@ -78,29 +78,30 @@ func requestReceiver(bb *BulkBlock) {
 	log.Printf("bulk close: %v", bb)
 }
 
+func (bb *BulkBlock) initializeBlock(x *KeyDB, dbName, collectionName string, interval int) {
+	bb.client = x
+	bb.isClosed = false
+	bb.dbName = dbName
+	bb.collectionName = collectionName
+	bb.collection = x.Col(dbName, collectionName)
+	bb.limit = interval
+	bb.chanRequest = make(chan mongoRequest)
+	bb.onceClose = sync.Once{}
+	bb.requestReceiverSync.Add(1)
+	bb.limitMaxIssue = limitGoSub.New(3)
+	bb.bulkWriteOption = options.BulkWrite().SetOrdered(false)
+	go requestReceiver(bb)
+}
+
 // NewBulk - prepare bulk operation
 func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
 	dbCol := dbName + "::" + collectionName
-	initializeBlock := func(pB *BulkBlock) {
-		pB.client = x
-		pB.isClosed = false
-		pB.dbName = dbName
-		pB.collectionName = collectionName
-		pB.collection = x.Col(dbName, collectionName)
-		pB.limit = interval
-		pB.chanRequest = make(chan mongoRequest)
-		pB.onceClose = sync.Once{}
-		pB.requestReceiverSync.Add(1)
-		pB.limitMaxIssue = limitGoSub.New(3)
-		pB.bulkWriteOption = options.BulkWrite().SetOrdered(false)
-		go requestReceiver(pB)
-	}
 	iVal, exist := x.mapBulk.Load(dbCol)
 	if exist {
 		if iVal.(*BulkBlock).isClosed {
 			pB := iVal.(*BulkBlock)
 			// restart channel
-			initializeBlock(pB)
+			pB.initializeBlock(x, dbName, collectionName, interval)
 			return pB
 		} else {
 			return iVal.(*BulkBlock)
@@ -109,7 +110,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		// create new channel
 		var b BulkBlock
 		pB := &b
-		initializeBlock(pB)
+		pB.initializeBlock(x, dbName, collectionName, interval)
 		log.Printf("bulk start: %v", pB)
 		x.mapBulk.Swap(dbCol, pB)
 		return pB
