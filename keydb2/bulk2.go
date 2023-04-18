@@ -32,11 +32,12 @@ type mongoRequest struct {
 }
 
 // merger - 야러 고루틴에서 보내지는 요구를 모아서 DB에 적용한다.
+var bulkWriteOption = options.BulkWrite().SetOrdered(false)
+
 func requestReceiver(bb *BulkBlock) {
 	defer bb.requestReceiverSync.Done()
 	var requestStorage []mongo.WriteModel
 	var mongoCallSync sync.WaitGroup
-	var nonOrderedOpt = options.BulkWrite().SetOrdered(false)
 	// define mongo db request
 	issueMongoCommand := func(models []mongo.WriteModel) {
 		defer func() {
@@ -44,7 +45,7 @@ func requestReceiver(bb *BulkBlock) {
 			mongoCallSync.Done()
 		}()
 		bb.limitMaxIssue.Wait()
-		if _, err := bb.collection.BulkWrite(context.Background(), models, nonOrderedOpt); err != nil {
+		if _, err := bb.collection.BulkWrite(context.Background(), models, bulkWriteOption); err != nil {
 			log.Printf("%v", err)
 		}
 	}
@@ -79,6 +80,10 @@ func requestReceiver(bb *BulkBlock) {
 	log.Printf("bulk close: %v", bb)
 }
 
+func SetOrderedWrite(order bool) {
+	bulkWriteOption = options.BulkWrite().SetOrdered(order)
+}
+
 // NewBulk - prepare bulk operation
 func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock {
 	dbCol := dbName + "::" + collectionName
@@ -93,6 +98,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 		pB.onceClose = sync.Once{}
 		pB.requestReceiverSync.Add(1)
 		pB.limitMaxIssue = limitGoSub.New(3)
+		SetOrderedWrite(false)
 		go requestReceiver(pB)
 	}
 	iVal, exist := x.mapBulk.Load(dbCol)
@@ -106,7 +112,7 @@ func (x *KeyDB) NewBulk(dbName, collectionName string, interval int) *BulkBlock 
 			return iVal.(*BulkBlock)
 		}
 	} else {
-		// create new chaneel
+		// create new channel
 		var b BulkBlock
 		pB := &b
 		initializeBlock(pB)
