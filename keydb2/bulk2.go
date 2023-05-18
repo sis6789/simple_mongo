@@ -89,7 +89,7 @@ func (bb *BulkBlock) initializeBlock(x *KeyDB, dbName, collectionName string, in
 	bb.onceClose = sync.Once{}
 	bb.requestReceiverSync.Add(1)
 	bb.limitMaxIssue = limitGoSub.New(3)
-	bb.bulkWriteOption = options.BulkWrite().SetOrdered(false)
+	bb.bulkWriteOption = options.BulkWrite().SetOrdered(true)
 	go requestReceiver(bb)
 }
 
