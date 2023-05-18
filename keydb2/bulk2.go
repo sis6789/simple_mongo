@@ -31,6 +31,8 @@ type mongoRequest struct {
 	data    mongo.WriteModel
 }
 
+var bulkCtx = context.Background()
+
 // merger - 야러 고루틴에서 보내지는 요구를 모아서 DB에 적용한다.
 func requestReceiver(bb *BulkBlock) {
 	defer bb.requestReceiverSync.Done()
@@ -43,7 +45,7 @@ func requestReceiver(bb *BulkBlock) {
 			mongoCallSync.Done()
 		}()
 		bb.limitMaxIssue.Wait()
-		if _, err := bb.collection.BulkWrite(context.Background(), models, bb.bulkWriteOption); err != nil {
+		if _, err := bb.collection.BulkWrite(bulkCtx, models, bb.bulkWriteOption); err != nil {
 			log.Printf("%v", err)
 		}
 	}
