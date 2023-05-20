@@ -56,7 +56,7 @@ func New(access string) (c *KeyDB) {
 			if err = newKeyDB.mongoClient.Ping(newKeyDB.myContext, nil); err != nil {
 				log.Fatalln(err)
 			}
-			clientMap.Store(access, &newKeyDB)
+			clientMap.Store(access, newKeyDB)
 			c = newKeyDB
 		} else {
 			log.Fatalf("server '%v' not avail", access)
