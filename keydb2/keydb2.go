@@ -3,6 +3,8 @@ package keydb2
 import (
 	"context"
 	"log"
+	"net"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -21,26 +23,48 @@ type KeyDB struct {
 	mapBulk       sync.Map      // map[string]*BulkBlock
 }
 
+var splitAddress = regexp.MustCompile(`^mongodb://(([\w.]+)(:(\d*))?)$`)
+
+// Avail - check mongodb
+func Avail(access string) bool {
+	tks := splitAddress.FindStringSubmatch(access)
+	address := tks[2]
+	if len(tks[4]) > 0 {
+		address += ":" + tks[4]
+	}
+	conn, err := net.Dial("tcp", address)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 // New - prepare mongodb access
-func New(access string) *KeyDB {
+func New(access string) (c *KeyDB) {
 	var err error
 	iVal, exist := clientMap.Load(access)
 	if !exist {
-		var newKeyDB KeyDB
-		newKeyDB.myContext = context.Background()
-		newKeyDB.mongodbAccess = access
-		clientOptions := options.Client().ApplyURI(newKeyDB.mongodbAccess)
-		if newKeyDB.mongoClient, err = mongo.Connect(newKeyDB.myContext, clientOptions); err != nil {
-			log.Fatalln(err)
+		if Avail(access) {
+			var newKeyDB = new(KeyDB)
+			newKeyDB.myContext = context.TODO()
+			newKeyDB.mongodbAccess = access
+			clientOptions := options.Client().ApplyURI(newKeyDB.mongodbAccess)
+			if newKeyDB.mongoClient, err = mongo.Connect(newKeyDB.myContext, clientOptions); err != nil {
+				log.Fatalf("%v", err)
+			}
+			if err = newKeyDB.mongoClient.Ping(newKeyDB.myContext, nil); err != nil {
+				log.Fatalln(err)
+			}
+			clientMap.Store(access, &newKeyDB)
+			c = newKeyDB
+		} else {
+			log.Fatalf("server '%v' not avail", access)
 		}
-		if err = newKeyDB.mongoClient.Ping(newKeyDB.myContext, nil); err != nil {
-			log.Fatalln(err)
-		}
-		clientMap.Store(access, &newKeyDB)
-		return &newKeyDB
 	} else {
-		return iVal.(*KeyDB)
+		c = iVal.(*KeyDB)
 	}
+	return
 }
 
 // GoodBye - disconnect all connection
@@ -52,8 +76,19 @@ func GoodBye() {
 		} else {
 			log.Printf("disconnect %v", kdb.mongodbAccess)
 		}
+		clientMap.Delete(key)
 		return true
 	})
+}
+
+// Close - remove connection to DB
+func (x *KeyDB) Close() {
+	if err := x.mongoClient.Disconnect(x.myContext); err != nil {
+		log.Printf("close fail: %v", x.mongodbAccess)
+	} else {
+		log.Printf("close mongo: %v", x.mongodbAccess)
+	}
+	clientMap.Delete(x.mongodbAccess)
 }
 
 // Database - return database with parameter, no admin for this DB
