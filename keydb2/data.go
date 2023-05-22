@@ -3,13 +3,15 @@ package keydb2
 import (
 	"errors"
 	"fmt"
+	"log"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"log"
 )
 
-var insertIfNoRec = options.Update().SetUpsert(true)
+var updateIfNoRec = options.Update().SetUpsert(true)
+var replaceIfNoRec = options.Replace().SetUpsert(true)
 
 // Insert - add new document func InsertMongo[TMongo any](db, col string, pMongo *TMongo) (err error) {
 func Insert[TData any](x *KeyDB, db, col string, pData *TData) (err error) {
@@ -48,7 +50,17 @@ func InsertMany[TData any](x *KeyDB, db, col string, pData []TData) (err error) 
 // Update - add new field or update
 func Update[TKey, TData any](x *KeyDB, db, col string, pKey TKey, pData *TData) (err error) {
 	wCollection := x.Col(db, col)
-	_, err = wCollection.UpdateOne(x.myContext, bson.M{"_id": pKey}, bson.M{"$set": *pData}, insertIfNoRec)
+	_, err = wCollection.UpdateOne(x.myContext, bson.M{"_id": pKey}, bson.M{"$set": *pData}, updateIfNoRec)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	return
+}
+
+// Replace - add new field or update
+func Replace[TKey, TData any](x *KeyDB, db, col string, pKey TKey, pData *TData) (err error) {
+	wCollection := x.Col(db, col)
+	_, err = wCollection.ReplaceOne(x.myContext, bson.M{"_id": pKey}, pData, replaceIfNoRec)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
@@ -58,7 +70,7 @@ func Update[TKey, TData any](x *KeyDB, db, col string, pKey TKey, pData *TData) 
 // Add - add new field or update
 func Add[TKey, TData any](x *KeyDB, db, col string, pKey TKey, pData *TData) (err error) {
 	wCollection := x.Col(db, col)
-	_, err = wCollection.UpdateOne(x.myContext, bson.M{"_id": pKey}, bson.M{"$set": *pData}, insertIfNoRec)
+	_, err = wCollection.UpdateOne(x.myContext, bson.M{"_id": pKey}, bson.M{"$set": *pData}, updateIfNoRec)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
